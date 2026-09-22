@@ -32,6 +32,27 @@ This creates your own copy of the repository under your GitHub account.
 
 ### 3. Clone Your Fork
 
+#### Install gh (github authentication) by running
+
+```bash
+sudo apt update
+sudo apt install gh
+```
+
+#### Log in to GitHub
+
+```bash
+gh auth login
+```
+Select:
+```text
+GitHub.com
+HTTPS
+Login with a web browser
+```
+Follow the displayed instructions to authenticate with your GitHub account.
+
+
 Replace `YOUR_USERNAME` with your GitHub username:
 ```
 git clone https://github.com/YOUR_USERNAME/me130_lab.git
@@ -136,29 +157,6 @@ ros2 run me130_pendulum keyboard_node
   p<Kp>  d<Kd>  i<Ki>  w<integral limit>      e.g.  p10.0<Enter>
   f<deadband>
 ```
-
-## Model conventions
-
-<!-- Standard quadratic ordering throughout, so the letters match `a*s^2 + b*s + c`:
-
-```
-    P(s) = K / (s^2 + b*s + c)        theta'' + b*theta' + c*theta = K*u
-      K  input gain        b  damping (friction, back-EMF)
-      c  stiffness = wn^2  ->  wn = sqrt(c),  zeta = b/(2*sqrt(c))
-```
-
-Hanging, gravity restores and `c > 0`. **Inverted, gravity destabilises and the
-STIFFNESS flips sign**: `s^2 + b*s - c`. Damping does not flip -- friction does
-not care which way up the rod is. -->
-
-With `u = -(Kp*theta + Kd*theta_dot)` the closed loop is
-
-```
-    s^2 + (b + K*Kd) s + (K*Kp - c) = 0
-```
-
-so stability needs `Kp > c/K` and `Kd > -b/K`.
-
 ## Safety
 
 - killing a test node stops the motor rather than leaving it driving.
