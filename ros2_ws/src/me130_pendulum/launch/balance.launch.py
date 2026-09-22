@@ -25,9 +25,9 @@ def generate_launch_description():
 
         # Students set these. Zero means the controller does nothing when armed,
         # which is the safe state for a first launch.
-        DeclareLaunchArgument("kp", default_value="0.0"), #proportional gain
-        DeclareLaunchArgument("ki", default_value="0.0"), #integral gain
-        DeclareLaunchArgument("kd", default_value="0.0"), #derivative gain
+        DeclareLaunchArgument("kp", default_value="0.0"), #proportional gain # TODO: <--- Modify in step 4 and 6
+        DeclareLaunchArgument("ki", default_value="0.0"), #integral gain # TODO: <--- Modify in step 6
+        DeclareLaunchArgument("kd", default_value="0.0"), #derivative gain # TODO: <--- Modify in step 6
 
         DeclareLaunchArgument("arm_window_deg", default_value="5.0",
                               description="how close to the zero arming is allowed"),
