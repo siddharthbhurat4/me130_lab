@@ -61,7 +61,9 @@ git clone https://github.com/YOUR_USERNAME/me130_lab.git
 source /opt/ros/jazzy/setup.bash
 cd ~/me130_lab/ros2_ws
 colcon build
-source install/setup.bash
+echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
+echo "source ~/me130_lab/ros2_ws/install/setup.bash" >> ~/.bashrc
+source ~/.bashrc
 ```
 
 
