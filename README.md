@@ -87,7 +87,7 @@ git remote -v
 * `upstream` → course repository
 
 ### 5. Save Your Work
-
+Run this whenever you want to save your code changes:
 ```bash
 git add .
 git commit -m "Describe your changes"
@@ -96,8 +96,7 @@ git push origin main
 
 ### 6. Get Course Updates
 
-When updates are released:
-
+Run this to get code updates when new code is released for the class:
 ```bash
 git fetch upstream
 git merge upstream/main
