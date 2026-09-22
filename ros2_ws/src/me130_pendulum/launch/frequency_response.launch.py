@@ -20,7 +20,7 @@ def generate_launch_description():
     motor_sign = LaunchConfiguration("motor_sign")
 
     return LaunchDescription([
-        DeclareLaunchArgument("deadband", default_value="0.0",
+        DeclareLaunchArgument("deadband", default_value="0.0", # TODO: <--- Change to your deadband value
                               description="from lab 1; 0.0 means no compensation"),
         DeclareLaunchArgument("motor_sign", default_value="1.0"),
         DeclareLaunchArgument("amplitude", default_value="0.10",
