@@ -57,6 +57,8 @@ Replace `YOUR_USERNAME` with your GitHub username:
 ```
 git clone https://github.com/YOUR_USERNAME/me130_lab.git
 ```
+
+Compile the code and set up auto-sourcing (this might take a couple of minutes):
 ```bash
 source /opt/ros/jazzy/setup.bash
 cd ~/me130_lab/ros2_ws
