@@ -1,23 +1,11 @@
 #!/usr/bin/env python3
-"""Free and forced response from the newest balance_encoder_imu step log.
+"""Free and forced response from the newest steps_*.csv (rod hanging DOWN).
 
-Picks the most recent steps_*.csv in this directory -- what
-step_response.launch.py writes with the rod hanging DOWN -- and plots both
-responses that each step segment contains back to back:
+Each step segment holds a constant duty (mode "step", forced) and then releases
+the motor to ring down (mode "coast", free). Both are sign-normalized so the
++duty and -duty runs of one magnitude overlay.
 
-  FORCED -- mode "step":  a constant duty is held, the rod is driven from rest
-  FREE   -- mode "coast": the motor is released and the rod rings down
-
-Both are sign-normalized so the +duty and -duty runs of one magnitude overlay.
-
-It also identifies the second-order model
-
-    theta'' + b*theta' + c*theta = K*u        i.e.   P(s) = K/(s^2 + b*s + c)
-
-by least squares. freq_response.py re-derives the same numbers from the same
-log and overlays them on the measured Bode data.
-
-Run it with no arguments, from wherever you launched the test:
+Also identifies  theta'' + b*theta' + c*theta = K*u,  P(s) = K/(s^2 + b*s + c).
 
     ros2 run me130_pendulum step_response.py
 """
@@ -31,14 +19,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-# step_response.launch.py writes steps_*.csv into the directory that ros2
-# launch ran from. full_*.csv is the pre-ROS name, still accepted.
+# full_*.csv is the pre-ROS name, still accepted.
 LOG_GLOBS = ["./steps_*.csv", "./build/steps_*.csv",
              "./full_*.csv", "./build/full_*.csv"]
 OUT_PNG = "step_response.png"
 DPI = 150
 
-# Categorical slots 1-4 of the reference palette (light mode).
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
 SURFACE, INK, INK_2, MUTED, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#898781", "#e1e0d9"
 
@@ -47,9 +33,8 @@ REQUIRED = {"t_s", "mode", "u_cmd", "theta_rad", "theta_dot_rad_s",
 
 
 def newest_log(globs=None, what="step", required=True):
-    """Most recent matching log. The filename carries YYYYmmdd_HHMMSS, so
-    comparing basenames is chronological and does not depend on mtime
-    surviving a copy. Returns None if required=False and nothing matches."""
+    """Most recent matching log, by the YYYYmmdd_HHMMSS in the filename rather
+    than mtime, which a copy does not preserve. None if not required."""
     globs = globs or LOG_GLOBS
     hits = [f for pattern in globs for f in glob.glob(pattern)]
     if not hits:
@@ -69,16 +54,16 @@ def load(path):
     missing = REQUIRED - set(df.columns)
     if missing:
         sys.exit("%s is missing column(s): %s" % (path, ", ".join(sorted(missing))))
-    # NOTE: df["mode"], never df.mode -- the latter is a DataFrame method.
-    # The numeric codes are older logs, from before the column became text.
+    # df["mode"], never df.mode -- the latter is a DataFrame method. The numeric
+    # codes are older logs, from before the column became text.
     df["mode"] = df["mode"].astype(str).str.strip().replace(
         {"0": "coast", "1": "pd", "2": "step", "3": "sine"})
     return df
 
 
 def step_segments(df):
-    """Yield (duty, forced, free) per step segment: the held portion followed
-    by the coast portion the firmware inserts before the next step."""
+    """Yield (duty, forced, free) per step segment: the held portion, then the
+    coast portion the firmware inserts before the next step."""
     for _, g in df.groupby("segment", sort=True):
         forced = g[g["mode"] == "step"]
         if forced.empty:
@@ -100,24 +85,13 @@ def _cumtrap(y, t):
 
 
 def _stiffness_and_gain(df):
-    """c (stiffness) and K (input gain), by integrating the ODE once rather
-    than differentiating it.
+    """c (stiffness) and K (gain), by integrating the ODE once rather than
+    differentiating it:
 
-    Coefficients follow the standard quadratic ordering: for
-    s^2 + b*s + c, b is the damping term and c the stiffness term.
+        theta'(t) - theta'(t0) = -b*(theta-theta(t0)) - c*Int(theta) + K*Int(u)
 
-    Integrating theta'' + b*theta' + c*theta = K*u from t0 gives
-
-        theta'(t) - theta'(t0) = -b*(theta(t)-theta(t0))
-                                 - c*Int(theta) + K*Int(u)
-
-    Every term is either measured directly or an integral of a measured signal.
-    Nothing is differentiated, so sensor noise is averaged down instead of
-    amplified -- differentiating the logged rate to get theta'' was costing
-    about 8% on a and b.
-
-    Rows are pooled over every step segment: the driven parts carry K, the
-    coast parts pin c with u = 0.
+    Nothing is differentiated, so noise averages down instead of amplifying.
+    Rows are pooled over every segment: driven parts carry K, coast parts pin c.
     """
     use = df[df["mode"].isin(["step", "coast"])]
     if len(use) < 50:
@@ -130,12 +104,9 @@ def _stiffness_and_gain(df):
     thd = use["theta_dot_rad_s"].to_numpy()
     u = use["u_cmd"].to_numpy()
 
-    # theta is measured from wherever the IMU was zeroed, which need not be the
-    # hanging equilibrium. The plant is really
-    #     theta'' + b*theta' + c*(theta - theta_eq) = K*u
-    # so integrating leaves a term c*theta_eq*(t-t0). Without a column for it an
-    # unzeroed log -- theta offset by ~90 deg -- makes Int(theta) a huge ramp
-    # that swamps the dynamics, and the fit collapses to c ~ 0.
+    # theta need not be zeroed at the hanging equilibrium, so the plant is
+    # really theta'' + b*theta' + c*(theta - theta_eq) = K*u. Integrating leaves
+    # c*theta_eq*(t-t0); without the ramp column an unzeroed log collapses to c ~ 0.
     ramp = t - t[0]
     M = np.column_stack([-(th - th[0]), -_cumtrap(th, t), _cumtrap(u, t), ramp])
     coef, *_ = np.linalg.lstsq(M, thd - thd[0], rcond=None)
@@ -146,14 +117,9 @@ def _stiffness_and_gain(df):
 
 
 def _damping(df):
-    """b (the damping term) from the log decrement of each free ringdown.
-
-    The peaks of an unforced ringdown decay as exp(-sigma*t) with sigma = b/2,
-    so fitting a line to log(peak amplitude) recovers the damping directly.
-    The regression above also produces a b, but it is the weakest column in
-    that fit -- on the same data it lands ~16% out where this lands ~4%.
-    Returns (b, number_of_ringdowns_used).
-    """
+    """b from the log decrement of each free ringdown: peaks decay as
+    exp(-sigma*t) with sigma = b/2. More accurate than the regression's own b
+    column (~4% vs ~16% on the same data). Returns (b, n_ringdowns_used)."""
     sigmas = []
     for _, g in df[df["mode"] == "coast"].groupby("segment"):
         if len(g) < 300:
@@ -178,12 +144,7 @@ def _damping(df):
 
 
 def identify(df):
-    """Identify theta'' + b*theta' + c*theta = K*u,  P(s) = K/(s^2 + b*s + c).
-
-    c and K come from the integral-form regression; b comes from the free
-    response. Using the estimator that suits each parameter beats forcing all
-    three out of one fit.
-    """
+    """c and K from the integral regression, b from the free response."""
     stiffness = _stiffness_and_gain(df)
     if stiffness is None:
         return None
@@ -202,7 +163,7 @@ def identify(df):
 def report(model):
     if not model:
         print("\nCould not identify a second-order model from this log.")
-        return "second-order fit unavailable"
+        return
     print("\nIdentified  theta'' + b*theta' + c*theta = K*u")
     print("            P(s) = K / (s^2 + b*s + c)")
     print("  K = %.4f      (input gain)" % model["K"])
@@ -219,8 +180,22 @@ def report(model):
     print("  c = %.4f      (stiffness; wn = %.3f rad/s = %.3f Hz)"
           % (model["c"], model["wn_rad"], model["wn_hz"]))
     print("\n  Inverted, gravity flips the STIFFNESS term: s^2 + b*s - c")
-    return ("identified: K=%.3f  b=%.3f  c=%.3f   ->   wn=%.3f Hz,  zeta=%.3f"
-            % (model["K"], model["b"], model["c"], model["wn_hz"], model["zeta"]))
+
+
+def headline(fig, model, title, note, x=0.045):
+    """Big b / c banner across the top -- the point of the whole plot."""
+    fig.text(x, 0.994, title, color=MUTED, fontsize=10, ha="left", va="top")
+    if model:
+        fig.text(x, 0.967,
+                 "b = %.4g     c = %.4g" % (model["b"], model["c"]),
+                 color=INK, fontsize=34, fontweight="semibold", ha="left", va="top")
+        tail = ("ωₙ = %.2f Hz     ζ = %.3f     ·     %s"
+                % (model["wn_hz"], model["zeta"], note))
+    else:
+        fig.text(x, 0.967, "second-order fit unavailable", color=INK,
+                 fontsize=28, fontweight="semibold", ha="left", va="top")
+        tail = note
+    fig.text(x, 0.900, tail, color=MUTED, fontsize=9.5, ha="left", va="top")
 
 
 def style(ax, xlabel, ylabel, title, subtitle):
@@ -250,15 +225,14 @@ def main():
         sys.exit("No step segments in %s.\n"
                  "Was it recorded with step_response.launch.py?" % path)
 
-    # One colour per duty MAGNITUDE: +d and -d are the same experiment mirrored,
-    # so they share a colour and overlay once sign-normalized.
+    # One colour per duty MAGNITUDE: +d and -d are the same experiment mirrored.
     mags = sorted({round(abs(d), 4) for d, _, _ in segs})
     if len(mags) > len(SERIES):
         print("note: %d duty magnitudes but %d palette slots; extras reuse colours."
               % (len(mags), len(SERIES)), file=sys.stderr)
     color_of = {m: SERIES[i % len(SERIES)] for i, m in enumerate(mags)}
 
-    fig = plt.figure(figsize=(12.6, 9.2))
+    fig = plt.figure(figsize=(12.6, 10.4))
     gs = fig.add_gridspec(2, 2, hspace=0.55, wspace=0.18)
     ax_f = fig.add_subplot(gs[0, 0])
     ax_r = fig.add_subplot(gs[0, 1])
@@ -281,9 +255,8 @@ def main():
         ax_f.plot(tf - tf[0], np.degrees(yf), color=color, linewidth=1.5,
                   label=label, zorder=3)
 
-        # Normalised: subtract where this step STARTED, then divide by the duty
-        # that drove it. A linear plant collapses every step onto one curve;
-        # spread between them is the plant telling you it is not linear.
+        # Shift to where the step started, divide by the duty that drove it. A
+        # linear plant collapses every step onto one curve; spread is nonlinearity.
         norm = np.degrees(yf_raw - yf_raw[0]) / duty
         ax_nf.plot(tf - tf[0], norm, color=color, linewidth=1.4,
                    label=label, zorder=3)
@@ -299,10 +272,8 @@ def main():
                       label=label, zorder=3)
             peak_free = np.degrees(np.abs(yr).max())
 
-            # Same treatment as the forced panel: shift to where the ringdown
-            # began, divide by the duty that produced it. The release is the
-            # mirror of the step, so a linear plant collapses these too and
-            # they settle at minus the forced steady state.
+            # Same treatment as the forced panel. The release mirrors the step,
+            # so these collapse too, settling at minus the forced steady state.
             norm_free = np.degrees(yr_raw - yr_raw[0]) / duty
             ax_nr.plot(tr - tr[0], norm_free, color=color, linewidth=1.4,
                        label=label, zorder=3)
@@ -314,9 +285,9 @@ def main():
                          norm_free_ss=norm_free_ss))
 
     style(ax_f, "Time since step onset (s)", "theta (deg, sign-normalized)",
-          "Forced response", "constant duty held, motor driving")
+          "Forced response", "")
     style(ax_r, "Time since release (s)", "theta (deg, sign-normalized)",
-          "Free response", "motor coasting, rod ringing down")
+          "Free response", "")
 
     def spread_of(key):
         vals = [r[key] for r in rows if np.isfinite(r[key])]
@@ -324,8 +295,7 @@ def main():
             return None, "a linear plant collapses these onto one curve"
         lo, hi, mid = min(vals), max(vals), float(np.median(vals))
         pct = 100.0 * (hi - lo) / abs(mid) if mid else 0.0
-        return (vals, pct), ("settles %.0f to %.0f deg/duty -- %.0f%% spread"
-                             % (lo, hi, pct))
+        return (vals, pct), ""
 
     ss_info, ss_note = spread_of("norm_ss")
     fr_info, fr_note = spread_of("norm_free_ss")
@@ -362,13 +332,14 @@ def main():
             print("  duty. On a geared rig that is stiction: each step stops where")
             print("  friction holds it, not at the true equilibrium.")
 
-    sub = report(identify(df))
+    model = identify(df)
+    report(model)
     print()
 
-    fig.suptitle("Step response: free and forced", color=INK, fontsize=14,
-                 x=0.045, ha="left", y=0.985)
-    fig.text(0.045, 0.928, sub, color=MUTED, fontsize=9, ha="left")
-    fig.tight_layout(rect=[0, 0, 1, 0.93])
+    headline(fig, model, "",
+             ""
+             "" )
+    fig.tight_layout(rect=[0, 0, 1, 0.845])
     fig.savefig(OUT_PNG, dpi=DPI, facecolor=SURFACE, bbox_inches="tight")
     print("wrote %s" % OUT_PNG)
 
