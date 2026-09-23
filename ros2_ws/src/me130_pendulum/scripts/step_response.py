@@ -187,10 +187,10 @@ def headline(fig, model, title, note, x=0.045):
     fig.text(x, 0.994, title, color=MUTED, fontsize=10, ha="left", va="top")
     if model:
         fig.text(x, 0.967,
-                 "b = %.4g     c = %.4g" % (model["b"], model["c"]),
+                 "K = %.4g     b = %.4g     c = %.4g"
+                 % (model["K"], model["b"], model["c"]),
                  color=INK, fontsize=34, fontweight="semibold", ha="left", va="top")
-        tail = ("ωₙ = %.2f Hz     ζ = %.3f     ·     %s"
-                % (model["wn_hz"], model["zeta"], note))
+        tail = note
     else:
         fig.text(x, 0.967, "second-order fit unavailable", color=INK,
                  fontsize=28, fontweight="semibold", ha="left", va="top")
@@ -334,14 +334,12 @@ def main():
 
     model = identify(df)
     report(model)
-    print()
 
     headline(fig, model, "",
              ""
              "" )
     fig.tight_layout(rect=[0, 0, 1, 0.845])
     fig.savefig(OUT_PNG, dpi=DPI, facecolor=SURFACE, bbox_inches="tight")
-    print("wrote %s" % OUT_PNG)
 
 
 if __name__ == "__main__":
